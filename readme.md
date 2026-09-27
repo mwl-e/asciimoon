@@ -37,3 +37,10 @@ Website Built using the Astro Framework
 ------------------------------------
 
 This website was built using the Astro framework.  Get started buildng with Astro today at [https://astro.build/](https://astro.build/).
+
+* * *
+
+Hyprland Desktop Widget
+-----------------------
+
+A desktop widget version for Hyprland is in [`hyprland-widget/`](hyprland-widget/README.md). You can pin your location in it, and it then turns the moon the way it looks from where you are and shows where you are in the day/night cycle.

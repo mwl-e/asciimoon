@@ -1,0 +1,782 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ASCIIMoon Widget</title>
+    <!-- SUNCALC IS VENDORED SO THE WIDGET WORKS OFFLINE -->
+    <script src="vendor/suncalc.js"></script>
+    <style>
+      :root {
+        --aqua: aqua;
+        --black: black;
+        --transparent-black-75: rgba(0, 0, 0, 0.75);
+        --transparent-aqua-25: rgba(0, 255, 255, 0.25);
+        --transparent-aqua-50: rgba(0, 255, 255, 0.5);
+        /* SKY TINT, CHANGED FROM JS BASED ON THE DAY/NIGHT CYCLE */
+        --sky: rgba(0, 0, 0, 0.82);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+      }
+
+      body {
+        color: var(--aqua);
+        font-family: Consolas, monospace, "Lucida Console", "Courier New",
+          Monaco;
+        font-weight: 600;
+        font-size: 12px;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+
+      #widget {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        height: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--transparent-aqua-25);
+        border-radius: 14px;
+        background: var(--sky);
+        transition: background 2s ease;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        font-size: 1.1rem;
+        font-weight: 900;
+        letter-spacing: -0.05rem;
+      }
+
+      button {
+        font: inherit;
+        font-size: 0.8rem;
+        color: var(--aqua);
+        background: var(--transparent-black-75);
+        border: 1px solid var(--transparent-aqua-50);
+        border-radius: 4px;
+        padding: 3px 8px;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: var(--transparent-aqua-25);
+      }
+
+      #pinButton {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        padding: 0;
+      }
+
+      #pinButton svg {
+        width: 15px;
+        height: 15px;
+        fill: none;
+        stroke: var(--aqua);
+        stroke-width: 2;
+      }
+
+      #pinButton.active svg {
+        fill: var(--aqua);
+        stroke: var(--black);
+      }
+
+      /* THE MOON DISC: THE WHOLE DISC IS ROTATED BY THE PARALLACTIC ANGLE,
+         THE SHADOW INSIDE IT IS ROTATED BY THE BRIGHT LIMB POSITION ANGLE */
+      #moonContainer {
+        position: relative;
+        flex: none;
+        width: var(--disc, 190px);
+        height: var(--disc, 190px);
+        border-radius: 50%;
+        overflow: hidden;
+        background: var(--black);
+        box-shadow: 0 0 3rem var(--transparent-aqua-25);
+        transition:
+          transform 0.6s ease-out,
+          opacity 0.6s ease-out;
+      }
+
+      #moonContainer.below-horizon {
+        opacity: 0.35;
+      }
+
+      #moonContainer pre {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        margin: 0;
+        font-size: 5px;
+        line-height: 1.425;
+        transform-origin: center center;
+      }
+
+      #moonShadow {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      #moonShadow path {
+        fill: rgba(0, 0, 0, 0.8);
+        transition: d 0.3s ease-out;
+      }
+
+      #moonData {
+        width: 100%;
+        line-height: 1.45;
+      }
+
+      #moonData .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      #moonData .row span:first-child {
+        opacity: 0.7;
+      }
+
+      #moonData .row span:last-child {
+        text-align: right;
+      }
+
+      #locationLine {
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        opacity: 0.8;
+        width: 100%;
+        text-align: center;
+      }
+
+      #dayBar {
+        width: 100%;
+        text-align: center;
+        white-space: pre;
+        font-size: 11px;
+        line-height: 1.2;
+      }
+
+      #dayBar .day { color: #ffe680; }
+      #dayBar .golden { color: #ffb347; }
+      #dayBar .civil { color: #c7a4ff; }
+      #dayBar .nautical { color: #6f8cff; }
+      #dayBar .astro { color: #3f5fb0; }
+      #dayBar .night { color: #2a3a60; }
+
+      .button-group {
+        display: flex;
+        gap: 6px;
+      }
+
+      body:not(.located) .located-only {
+        display: none !important;
+      }
+
+      /* LOCATION PANEL (OPENED BY THE PIN BUTTON) */
+      #locationPanel {
+        position: absolute;
+        inset: 44px 10px auto 10px;
+        display: none;
+        flex-direction: column;
+        gap: 6px;
+        padding: 10px;
+        background: rgba(0, 0, 0, 0.92);
+        border: 1px solid var(--transparent-aqua-50);
+        border-radius: 8px;
+        z-index: 10;
+      }
+
+      #locationPanel.open {
+        display: flex;
+      }
+
+      #locationPanel input {
+        font: inherit;
+        color: var(--aqua);
+        background: var(--black);
+        border: 1px solid var(--transparent-aqua-50);
+        border-radius: 4px;
+        padding: 5px 6px;
+        outline: none;
+        user-select: text;
+        -webkit-user-select: text;
+      }
+
+      #locationPanel input:focus {
+        border-color: var(--aqua);
+      }
+
+      #locationStatus {
+        min-height: 1.2em;
+        font-size: 0.75rem;
+        opacity: 0.8;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="widget">
+      <header>
+        <span>ASCIIMoon</span>
+        <button id="pinButton" title="Set your location">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 22s7-6.1 7-12a7 7 0 1 0-14 0c0 5.9 7 12 7 12z" />
+            <circle cx="12" cy="10" r="2.5" />
+          </svg>
+        </button>
+      </header>
+
+      <div id="locationPanel">
+        <label for="locationInput">City, or "lat, lon":</label>
+        <input
+          id="locationInput"
+          type="text"
+          placeholder="e.g. Oslo   or   59.91, 10.75"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <div class="button-group">
+          <button id="locationSet">Set</button>
+          <button id="locationGps" title="Ask the system for your location">
+            Detect
+          </button>
+          <button id="locationClear">Clear</button>
+          <button id="locationClose">Close</button>
+        </div>
+        <div id="locationStatus"></div>
+      </div>
+
+      <div id="moonContainer">
+        <!-- THIS IS ASCII ART OF A PHOTO OF THE MOON TAKEN BY THE GALILEO SPACECRAFT IN 1992 -->
+        <pre id="moonArt">                                                                                    #@&amp;&amp;%#%&amp;(#&amp;###&amp;%###&amp;&amp;&amp;&amp;#/(@&amp;(###.  %/#,                                                                             
+                                                                            #&amp;%%#&amp;@%(&amp;%##(*%&amp;%##(###&amp;&amp;%&amp;%#(#%&amp;%%%&amp;%###%(%#(#((@&amp;&amp;&amp;(/.                                                                   
+                                                                   .%&amp;&amp;##%###/%%#%%#&amp;,%%&amp;%%%%#%%%%%%&amp;&amp;&amp;&amp;%%%%##%&amp;(#(%&amp;(###%/##&amp;##%(*(&amp;%@#%*%/                                                            
+                                                             /#/%&amp;%#%(@%##%(((#&amp;&amp;&amp;%%%%&amp;%%%%&amp;%&amp;&amp;&amp;&amp;&amp;&amp;&amp;%%%%%%%%%%%#####%#%&amp;#%#%%%%%%%%&amp;&amp;&amp;&amp;%%.%%%%%*(                                                       
+                                                       ,(.@&amp;%((#(@%#&amp;%###(####((%&amp;%%%%%%%&amp;&amp;&amp;&amp;&amp;&amp;&amp;#&amp;&amp;&amp;&amp;&amp;%%%##%###%####(%#%##%#%%%%%%&amp;&amp;%&amp;&amp;(%&amp;&amp;&amp;&amp;%&amp;&amp;%&amp;&amp;&amp;#,                                                  
+                                                   /(*/**,.%#((((*###%###((###%##%(%%%#%%%%%%%%%%%%#%%%%%%##%########%(####%%%%%%%%%&amp;&amp;&amp;&amp;%#%%%&amp;%%&amp;%%%%%%&amp;#&amp;                                              
+                                               /*/((%%(#####((%((((((((#((#(##(###########%#%%#&amp;%###%##(#%%%%#####(#%#(((##&amp;#%##%%&amp;&amp;&amp;%&amp;%%%%%%%%#%/#%(#(/%%%###                                          
+                                           ,*/,(/%/#/((#((((/(((((*//(////((#((#//(/((((#########(#(##(#(##(##(#((###(#######%%%&amp;&amp;&amp;&amp;%%%&amp;%%#%####&amp;#%%#/*****((%((&amp;&amp;                                      
+                                        .,.,///((/(((/(/*((/&amp;*////**/*//********////((((((((#(##(##((#(#(#%%((((#(#####&amp;%###%%%%%&amp;%&amp;&amp;&amp;%%%%%#%%###(((##(*,,,/((##/####                                   
+                                     .,,,**////*********,,,*,**//(//***********//*****/*,**////((/((///((((((((((##(####%#((###%%%%%&amp;&amp;&amp;&amp;%%%&amp;####%&amp;(((((##((%####%((%(#&amp;*                                
+                                  ..,,,*,*,*,.,******//******,,*///////*****/******/********/////*/(/((///////(/(((//(/((((((((((#%%%%%&amp;%&amp;%%&amp;%((#%#%(#(###(((#((#(##((#%%*@                             
+                               ,..,.,,,*,*....,,,*//(*/////((/(((((//(/**/*/***/((((((///**///////////((///////**(////*********(#/###%#%%%%#%&amp;%///(%####(##(//(((((#((#(/(#(*                           
+                             ......,,,,,*,,.,,,****#&amp;(((((#((/////(#//*/((####((//((//(((((((///////////(///////*//*/*/*/*******//((##%#%%#%%(#%%#%%%#(((#%##(##(%(#((((##(%*#*#                        
+                           ........,,,,**,*/*///(((((((%#/////(/(%/////**//##(#*,,,*#/(/(%%%#*//((/////////*/////*////***/******(((((#%##%########%(((##((###%%(#((%(((###%((#((%#                      
+                        ..........,,....,*///((//(((%##((((//(/(/*****,,,,***//(*/((*/(((#(####((#////(////###(#(((///(*///#((///###%####%#(##%####(///((####%###(##/(((####(##%#,%%                    
+                      .........,........,/(//((//#(,,,,,**,**//**,,,,,,,,,**/******//(#%((((((##((/(/*/////(#(/(((//(((((((/////(###(%%%####%%%#%&amp;##((/(/*//((#(*((##(######(((((##(#@                  
+                    ...............,..,***/*////(/*,,,,*,,,,,.....,,,,,,,,************//(#%(#(##(((///((((/(((((((#(((((////////#(((###(#####%###%##((((((((((/#((/((##%&amp;%%##(((%(%/(#(%                
+                   ..................**/////*/(//,,,,.,,,,,........,,,*,,,,**,*,********//#/((###(##((((##((###(%#####(///(##(/#((//(((((((((########(#(##(%#((#%((##(#((%####(##%###((%%               
+                 ...............,,,,*//**//*//*,**,.............,,.,,,,,,,***,*#,****/****##(((((###(((((###%##%(((#(((///////#(#((%(#(((((((((#######(///%##(#((###(#(((#((((((#(%#(#(//(#             
+               ..,,............,,,,*******(/,,...,......,..,..,,,,,.,,,,**,,,,,*,***/*****/%(/(#/####((#(##(####((#(/((/(/#//###(((((//(//(#%#####%#%##/##((###%#%#((((#(//((((#/((##(((#((,            
+              ................,.,,,,**,***,,,.,,,,,,................,,,,/,,,,,,********#//////###/(((###%%(((###((((/(/****/(///((/(///*(//(%#((#####((((########%%##(%(((((##((((#####%##((((          
+            /*..............,,..,,.,.,*,,...,...,......,........,.,.,,,,*,,,,,*******//////////////#%%%%####(##((#(((((/**/*////((((((****/(#%###((((#####(%#%##%%&amp;%#%(#((##%/#%(##((##(%%##(##         
+           (.,.........,.,..,,,,...,,*,,....,,,,,,,,.,,,.......,,,,,,,,,**,,,,,,****///*////*(/((/(###(#(/****//(((((((/***(//***(//**/***//(((#%##%%%###(((##((##%%%##((((((###%(#########(#///        
+           ..........,...,,,,,,,,,,,,,,..,,,,,,,.......,..,...,,.,,,,,,,,,,,,,,,******/**//**/**//(##((**,*,,,,,****/*/(((**,,**///(/****//((///(%%%#%#%#%(#(###%#%%%((((/%(((##&amp;#%#&amp;###%#%%#(*//       
+         ,/.........,.,.,./,**,,,,,,,**,,,,,,,,...........,....,,,,...,,,,,,.,,*(*,***//#///***/**((#((*******,********,,***,****//(((////(####%%%#####&amp;%%#%#(#%####%#(((##(#(#(((#(####%(#%%(##(/      
+        ..............,,*/,,,,*,,,,.,.,,,,,,,,,,,,,,.....,,,,,,,,,,,,,,,,,,,,,,,,,*****////*****//////,,,,,,,,,,*,*,,,,,**,,,,,,/(##%%((///#%#%%##%%#%##%%%##%%###%&amp;###(######%####/%(((##%###/#((#     
+       ..............,,*//*,,****,,,,,*(,,*,,.,,,,.,,..,,,...,*,,,,,,,,,,,,,,,**///**///((///****(***,,,,...,,,,,,,,,,,***,,,,,,*/((%((((####(%%%%%%%%&amp;###%%%%###(###((##%%#(/((/((###%###%&amp;###/(///    
+      ...,..........,/*&amp;&amp;***,***,,,,,,,,,,,.,..,,,(,,,,,,,.,,,,,,,,,,,,,,,,,,,/****//////////*******,,,,,,,,,,,,,,,,,,***,,,,,,,,,**//((((#%##%##%##%%####%&amp;%#(###%(//((/#(#((/#&amp;*%/##(((####((##((//   
+     %.............,*,*****,,,*,,.,,..*...,,,..,,*,,,,,,,,..,,,,,,*****,,***///*/*****//(((//*/(/*/,,,*,,,,,,,,,,,,,,,*,*,,,,,....,,///(##%%%%%%%####%(##%((##(###/(((#(##*//**/(//,%((((((##%(((/##/   
+     ...............,,,,,***,,,....,,..,,..,,,,,,,,,,,,,*,..,*,,,,*/***,**/////(///****,,**//((///*,,,,,,,,,,.,,,,,,,*,,,,,,,,,,...,,,*/(###%&amp;&amp;%%%#%%%%#(*/((((((//((#%/*,*,,*,,*,(//((/(##((((/,,(///  
+    ................,....*,*,,.,,,,,.,,,,,*/*,,.,*,*,,,,*,,,*,,,,,,,,,,,,**//////(//**,***,*/////*,,,,,,.,,,,,,,,,,,**,,,,.,,,,,,,.,**////%(#%%###%####(#/(#((/(((//(*******,,,,.,,.,*//(/%(//((*,,,,*. 
+    .......................,***,,.,,.,,,*,*****,*,***,,,,**,**,,,,*,*,,,,,,,,*/(/////(//*/(/((%(/**.,,.......,,,,,,,*,,,,,,,,,,,,,,.,,*////(((#(//#(%#%#(#/(#((((((((****,*,,,,,.....*.,(/(##//(//,.,,,/ 
+    ,,...............*....,,,*,,,*...,..,,,*/*,*,**,,,/(,*,,,**,,,,,*,,,,,,,,,,,***/(#((%##(((///*,,..........,.,,,**,,,,,,,.,,,,,,,,.(,*/(#((((/**//%&amp;#(/#(##(####(/***,,,,,,,,,....,..*#(##(/,/**...,* 
+    /,*...................,,,,****..,,,.***,,*,,**,***,,,**,*,*,**,,**,,,,*,,,,,,,**(/((#(##(//*/**,,......,,,,,,,,,*,,,,,,,,,,,,,,.,.,**/(((/////**/((#((####%#&amp;#%#((/*,,,,,,,,,.....,,,(((##(#/,//,*,,/*
+    */,...................,,,,,,/*,,..,,*******/**/****,**,********,,,*/*,,.,,/*,/((/((///(((////*,*,,,..,/....,,,,,,,,,,,.,,,,,,,....,/*//////,,******,*/(((%&amp;&amp;&amp;%&amp;&amp;%%#/*,,,,,..,....,*((/((###/(#(//(**/*
+    (*,...............,,.,,,*****,,..*/***(##///////**/******/*//*********,,/(/((////(//(/**//*,**,/*,****,/**,,,,,,,*,,,,,,,...,,,.,...,,/*******,,,,,//(((((((#%%%#/(/*,,*.,,..,....,/##(*((((((((/*,*/*
+    (*,..................,,,******,*,*,,***/(*(/*/(((///(*//*//*/((/**/////////////////****,********,,,,**,,,*,/(/(*.,,(,.,,......,,,,.....,,***,,,,,,,,*//(%((/(#&amp;%#%#/**,,,,,,,,.,.,*(#/((#,(((((/(//***
+    (*#*...................*,*//**/**.,,,*///((((//*(((#((((///*///(///*,*,,,,***/////**,,,,,,,,,,,,,*/((/****,,,/(((#/***/*..,/*..........,....,,..,,...*,/(/((/(##%%#%#(///,,.,,,,,///#((/,*(,/(#/#(/(*,*
+    /(/*,..........,....,.,**///(//**,,,,**((/(#(((///###((((///////*//*****,,,,,,,****,,,,*,,,,,,,,,,/#((/*,,**/**,#**/*,...............,.,,................,,*/((//#####(###//*(/#/(////#,.(,,//(((#//..,
+    *((*................,***//#(////**,,****//(//(((#%%%&amp;%(///(/////*/******,,,,,...,,*,,,,,,,,,,...,,,**/****/////,*,.,..............,..,................**...*,**/(######(##(((((((//*,/,.**/,#//(/#/,...
+    ,(#,.................,,***/(((/**,,,,*,,**/(((((#%%%%%%(///////////***,,,,,,.,..,,***,,,,..,,.....,**,,//*///#///,,............,,*,,................*...,,//*/*****/(((((((/(((((((/(//*//,#/*/(/%(,,.,
+    #*,.................,*,,/*////,,**//**#***//(//*/////*//////**//****,,,,**,,***///////***,,,,,.,.,****,((/(/**//*,,.....................,.............*/*,*****,*,***/((%####(((*(/((,(////,**//**....
+    /**..................,**,,,/,,,******/*//*///*////**/*********/*//,,**,,,****//////((#///**//******,**((((((/(/**,.........,,,,......................,,..,**//*//,,*,..*/(/((//(**/#*,/*((////*//*,.,*
+    *,(*,.................***,#/,,,*/**,*,****//////*/****//,,.,,,***,.....,,***((#((///(////((/**//,/((//((#((#(//***,...,*,.,,,.........,,......,.*,,,,,.,,,******,*,........,*.,,,***,,*/*/(/(**//,,,*,
+    ../*/.................*..,,,,,,,,,**,,***///*//(//*****,**,,,,,**,,..,,,,****/////*/(*//(####((#(##((###((#((////,*,.,,,,,..........,..*,,,.,,*,,,,.,,,,*****,,,,..,..........,,/***/,//(/////((*,,,* 
+    ,/%**/.....,......,........,,,,.*,,**/**,****/((///*//**,**,**,,,,,,,,,*,.***/,**//(((/(#((((((##%%%%%#%((/(/*/***,,,...........,....,,*,,*,,,..,,.,,,,*,**..,,,............,,,,,**/*/(///(/////*..* 
+    */(**,......,........,......,,*,.,,,,*/******///*/((///***,,****,*****,**,,*/,******//(((((####(#%%&amp;%%%%#(((///(/*//,,.,.,,,,,......,,,,,(#((%,,/,*,,,*/,,.,,.,,.........,,,,,,,,*(//(//*////////**  
+    //#//,.....*.,(............,,,,,*,,**,***********/((///*****,***,*/*////**(*,,,**/**//((###%%%###%%%%%####(#(////*,**,,,,,,,,,,,,,,*.,*/&amp;%####(/((/*((*,,,,,.,,.....,,..,,,,**,,**//*//**////////*  
+    ,/%/(*,.,............,,....,,,,,,,,,***,*,,,,,****///(/*//*******///(((((///*****//(((###(%(#%%###%%#######&amp;#((((((##(/*/*,*,,*,,,,,*//(#((((%(#%(//***,,,,,,.,...,...,,,,*,,,,*////(/////(//////   
+     (*/#(,...,...,...,...,,...,,*,.,,*(,,*,,*,,,/(*,////////***(//(((((//(##((((((/(//(((((#####&amp;###################%#%###(#(#(*/*,,,,,*((#((((((((/(#/(((*,,,,.,,.....,...,,*,/(###((///(///(/##/(,   
+      (/(%(*,,**..,..,...,.....,.,*,,/////*,,*,,,,/***/(/*//**/,**(##%#(#((###((#((((((((((###%######(####%##%###%##%%%%%%%%%%(((****/*(/((((#((#(((((///**//,/.,,,,,..,..*****/#(%%#/(##/(/////////    
+       ///(//***#,,,.,.,,*,,.....,.,****//,...,,***,*///////(***,**/((###((((###%###((#(((((#####%############%%%##%&amp;&amp;%%&amp;%#((//***/*****/(((((((###%#((((//*,/*,..,.....,,****/((##(/(////(///(///*     
+        (((((//**,,,***/**/*,.,..,,,,,**/,,,,.,,,,,,*,**/((/*,*,.,**///((((#########(((#########%%%%%%%#%%#%%####%%%&amp;&amp;%%%%#((((//////*//((((((((##%&amp;##%%/*(//((/,,,*,,,,,**,****/////(//////(//(/(      
+        .##/(/(/*,*//*///////,,,......**,,.....,,,,,,,,***///*,,,,,,***/((####(((((#(((#%(%#(##%%%&amp;%%%###%%######%%%%%%%%####((/(((/////(//(#((#%%##(%#%#%%/*((**,,*,,,******/*/(////(////*(/////       
+          ##((//*///*//*///(/*/,,.,...,,*,*.,...,,,,,,*,*,*/#*/,*,,,**(//((#%#((/((//(#((#(#####%%########%%###%%%%#%%%%&amp;&amp;&amp;%%##%%%%#((/##/*///*///(#((#%##(#/#/*/(/*//*/******//****///***///(*/        
+           ##((/(/////(///(*/*,.*(,.,....,,,#/**(*,*,,******/((,,,,,**(//((((((##(((((((#(##(((%%###########%%%&amp;&amp;%%%&amp;%%%%%#%%%%%%&amp;##(##((((/*****/**/(##((/(/#((((**(#(******//****/****////(**         
+            %%(#/////(##(/*//(/,./,,,/*,.,,//*(((*,,,****,,,/**,,,,,,*******(#((#((#((((##((####(((((##%#%%%##%%##%%##%%%%&amp;&amp;&amp;&amp;%%%%####/((/********//(&amp;#%#%&amp;#(/(#(/*///*****,**/*/**//***////**          
+             %###%(/((((/*,*.....,,,,.,***,,/((//*,,*,,,,,,,,*,*,,,***/*/#**((#%((###((((((##((%######%#####%##%%%###%%%%%&amp;&amp;&amp;&amp;&amp;%&amp;&amp;%%#(//************(#%%#//*#((//********##((((/**///////*//            
+              .##%(#((((/,,.........**(///***//**,,*,,****,,,***,**,,,,,,**(((#########((((##(######%%%%#%%%###%#####%#%%%%&amp;%%&amp;&amp;&amp;&amp;&amp;%#(/(//***/******(##(#(*((/((//***,*/(#(((//////*////*(/             
+                #(((##(*%/*,,.,.......*(///*///***#(/*,***,*,,,...,,*,,,/(##(((###%###(###&amp;%&amp;%%##(###(#########((###%%#%#%#%%%%%&amp;%%%##((/(/******,**/(((((#(/**/(/**////(#((*(((//(/**///,              
+                  #((#%(#(/,,,,,......,*/**,*,,*/***/******,,,,,,,,*,,,**(#(((%#####((((##%###%%(((((#######(####%#####%##%%%%%%%#%%%%%%/////#/(#%##(//(##(/#(((((/((((((/(%(#((((/****/                
+                   /((####///,*,,,..,.,,,,**,*,,*//*****,,,,*/,,,,,,,,**///#(&amp;%####((((####((##(((((######%##%%#%##%#((##%%%%#%%%%%%%%%#((((###%%##(/((##(#(#%#(#%#((((#%#(##((((/****                  
+                     /(((#&amp;%#(/*/,,,,,,,/****(/,,,*******,,,,,,,,,,,,,,***/*/(###%##(#####%####((#####%#%%%%%%%%#(##########%%%%&amp;&amp;%%#######%####((((#%###%%#%##%#%%%###(%%#((%((////                    
+                       (((((%###(/***(**//(//*(,**,,*/***,,,,,,,,,,,,,*,***/###%##((##%%%%%%######%%%%%%%%%%%%######(###%##%&amp;&amp;&amp;%%%#%%#%%%&amp;%#%#(####(##%%%%%%%%%%%%%%#%%%#(#&amp;((///*.                     
+                         #/(((/((*(/////(//(/,,*/(///*((/*/*****//**//*(/**(###%%#%%%%%#&amp;%%%%###%%%%%&amp;%%%#%(#((#####%###%%%%%%%##%#%%%%%########(###%#%#(##%%%&amp;&amp;%%%%%%###%(////*                        
+                           ///(((/**//((/((#*/,,***//*/#%%#(#/(((****######%%%%%%%&amp;%%%&amp;%%&amp;&amp;%%%##%%%%%%%%###(#(#(###%&amp;&amp;%###(#%%#######%%##(####%###########%%%&amp;%%%%&amp;&amp;#(((///***                          
+                              //(/((***(((//((***((***/(#%%&amp;&amp;#%%#%#(%#%%%&amp;%&amp;&amp;&amp;&amp;&amp;%%%%&amp;&amp;%%%&amp;%&amp;%%%%%##%##(########(#%&amp;%%%%######%%%###(##(##(######%#%####%%%%%%%%%##///////***                            
+                                /,/%(((/(/##((((%#(*(###((%##%%%%%#%%%#%&amp;%%&amp;&amp;&amp;&amp;&amp;@@&amp;&amp;&amp;&amp;%%%%%%%%%%%%%#%##%##%%##%%%&amp;%%####%#%%#%%##(#(####((###############%#%%####(///****                               
+                                   ////(((#(#((#(((/##%(%###%##%%##%%%%&amp;&amp;&amp;&amp;&amp;&amp;%%&amp;&amp;&amp;&amp;&amp;%%%&amp;%%%%%&amp;&amp;&amp;#%##%%%%###%%%%##%####(###%###(####(#(##########(##(#(#%#%((/(////***,                                  
+                                      /*////((###(##(##((((##%%%%%&amp;%&amp;%&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;%&amp;%&amp;%%%%%%%###%&amp;&amp;%#%%######%%########(###(#%%%##(####(#####%%####%((((/////***.                                    
+                                         //*//(//((#((#((#%#%%#%%%%%&amp;&amp;&amp;%%%%%%&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;&amp;%%%%%##(####((##%######%#%%%%%##(((####%%###%%%#%####(#(((/(///*,                                        
+                                            ./////(((##(#((####%%%%%%%%#&amp;&amp;&amp;&amp;&amp;%%%%&amp;&amp;&amp;&amp;&amp;&amp;%%%&amp;%%%%%%%&amp;%%##%%%%%%%%#((####%##(#(###((##%#######%%%####((////((/**                                           
+                                                ***#/(((#((##((%#%%%%%&amp;%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%####((##((((((####((#####%%%%%##%%%%%##(#(///#((/*,,                                               
+                                                    ,**(((/((((###%#%%%%%&amp;&amp;&amp;&amp;%%&amp;&amp;&amp;%&amp;&amp;&amp;&amp;&amp;&amp;%%&amp;%%%%#%%%%#######((#(((((#(#(((####(######(##(((////////*,                                                   
+                                                         *(((#(((###%%#%%%%%&amp;&amp;%%%%%%%%%%%%#&amp;&amp;%%%%%###%%%#((###(((####((#(###(#######(((((((/////                                                        
+                                                               ((/(####(#%%%%%%#%%%%%%%%%%##%%%%%#%######(########%##((((((((###//(((/////                                                              
+                                                                     .(((##(##%%%#%%%%%%%%%%%#%%##%%%%#((####(((((((((((/((((((////,                                                                    
+                                                                              */(%%%%%%%%%##%##########(/(((/(((((////////.</pre>
+        <svg id="moonShadow" viewBox="-1 -1 2 2" aria-hidden="true">
+          <g id="shadowGroup"><path id="shadowPath" d="" /></g>
+        </svg>
+      </div>
+
+      <div id="locationLine"></div>
+
+      <div id="moonData">
+        <div class="row"><span>Date</span><span class="date"></span></div>
+        <div class="row"><span>Moonlight</span><span class="illumination"></span></div>
+        <div class="row"><span>Phase</span><span class="phase"></span></div>
+        <div class="row located-only"><span>Sky</span><span class="sky"></span></div>
+        <div class="row located-only"><span>Sun</span><span class="sun"></span></div>
+        <div class="row located-only"><span>Moon</span><span class="moon"></span></div>
+      </div>
+
+      <div id="dayBar" class="located-only"></div>
+
+      <div class="button-group">
+        <button id="prevDay" title="Go to Previous Day">&lt; Prev</button>
+        <button id="today" title="Go to Today">Today</button>
+        <button id="nextDay" title="Go to Next Day">Next &gt;</button>
+      </div>
+    </div>
+
+    <script>
+      // ASCIIMOON HYPRLAND WIDGET
+      // USES SUNCALC TO TRACK THE MOON'S PHASE, ITS ORIENTATION IN YOUR SKY,
+      // AND WHERE YOU ARE IN THE DAY/NIGHT CYCLE.
+
+      const STORAGE_KEY = "asciimoon.location";
+      const DEG = 180 / Math.PI;
+      const $ = (id) => document.getElementById(id);
+
+      let currentDate = new Date();
+      let live = true; // FOLLOW THE CLOCK UNTIL THE USER BROWSES TO ANOTHER DAY
+      let location_ = loadLocation();
+      let discRotation = 0; // ACCUMULATED SO THE DISC NEVER SPINS THE LONG WAY ROUND
+      let shadowRotation = 0;
+
+      // ---------- LOCATION ----------
+
+      function validCoords(lat, lon) {
+        return (
+          Number.isFinite(lat) &&
+          Number.isFinite(lon) &&
+          Math.abs(lat) <= 90 &&
+          Math.abs(lon) <= 180
+        );
+      }
+
+      function formatCoords(lat, lon) {
+        return (
+          `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? "N" : "S"}, ` +
+          `${Math.abs(lon).toFixed(2)}°${lon >= 0 ? "E" : "W"}`
+        );
+      }
+
+      function loadLocation() {
+        try {
+          const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+          if (saved && validCoords(saved.lat, saved.lon)) return saved;
+        } catch (e) {}
+
+        // FALLBACK: DEFAULT LOCATION PASSED BY THE LAUNCHER (--lat/--lon)
+        const params = new URLSearchParams(window.location.search);
+        const lat = parseFloat(params.get("lat"));
+        const lon = parseFloat(params.get("lon"));
+        if (validCoords(lat, lon)) {
+          return {
+            lat,
+            lon,
+            name: params.get("name") || formatCoords(lat, lon),
+            tz: params.get("tz") || null,
+          };
+        }
+        return null;
+      }
+
+      function saveLocation(loc) {
+        location_ = loc;
+        try {
+          if (loc) localStorage.setItem(STORAGE_KEY, JSON.stringify(loc));
+          else localStorage.removeItem(STORAGE_KEY);
+        } catch (e) {}
+        render();
+      }
+
+      async function resolveLocation(query) {
+        const coords = query.match(
+          /^\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)\s*$/
+        );
+        if (coords) {
+          const lat = parseFloat(coords[1]);
+          const lon = parseFloat(coords[2]);
+          if (!validCoords(lat, lon)) throw new Error("Coordinates out of range");
+          return { lat, lon, name: formatCoords(lat, lon), tz: null };
+        }
+
+        // CITY NAME: LOOK IT UP WITH OPEN-METEO'S FREE GEOCODER (NO API KEY)
+        const url =
+          "https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&format=json&name=" +
+          encodeURIComponent(query.trim());
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Lookup failed (${response.status})`);
+        const data = await response.json();
+        const place = data.results && data.results[0];
+        if (!place) throw new Error("No place found with that name");
+        return {
+          lat: place.latitude,
+          lon: place.longitude,
+          name: [place.name, place.country].filter(Boolean).join(", "),
+          tz: place.timezone || null,
+        };
+      }
+
+      // ---------- MOON ----------
+
+      function getMoonPhaseName(phase) {
+        if (phase < 0.03) return "New Moon";
+        if (phase < 0.22) return "Waxing Crescent";
+        if (phase < 0.28) return "First Quarter";
+        if (phase < 0.48) return "Waxing Gibbous";
+        if (phase < 0.52) return "Full Moon";
+        if (phase < 0.72) return "Waning Gibbous";
+        if (phase < 0.78) return "Last Quarter";
+        if (phase < 0.97) return "Waning Crescent";
+        return "New Moon";
+      }
+
+      // DARK PART OF THE DISC (RADIUS 1), DRAWN WITH THE BRIGHT LIMB FACING +X.
+      // THE TERMINATOR IS A HALF-ELLIPSE WITH HALF-WIDTH |1 - 2k|.
+      function shadowPath(k) {
+        const rx = Math.abs(1 - 2 * k).toFixed(4);
+        const sweep = k < 0.5 ? 0 : 1; // CRESCENT: SHADOW BULGES TOWARDS THE LIT SIDE
+        return `M0,-1 A1,1 0 0 0 0,1 A${rx},1 0 0 ${sweep} 0,-1 Z`;
+      }
+
+      // ROTATE TO THE CLOSEST EQUIVALENT ANGLE SO CSS TRANSITIONS TAKE THE SHORT WAY
+      function closestAngle(previous, target) {
+        const delta = ((((target - previous) % 360) + 540) % 360) - 180;
+        return previous + delta;
+      }
+
+      function renderMoon(date) {
+        const illum = SunCalc.getMoonIllumination(date);
+
+        // SUNCALC'S `angle` IS THE POSITION ANGLE OF THE BRIGHT LIMB, MEASURED
+        // FROM CELESTIAL NORTH TOWARDS EAST (COUNTER-CLOCKWISE ON THE SKY).
+        // IN THE DISC'S NORTH-UP FRAME THE LIT SIDE (+X IN THE SVG) MUST POINT
+        // THERE, SO ROTATE CLOCKWISE BY -(angle) - 90°.
+        shadowRotation = closestAngle(shadowRotation, -illum.angle * DEG - 90);
+
+        // THE PARALLACTIC ANGLE IS WHERE YOUR ZENITH SITS RELATIVE TO CELESTIAL
+        // NORTH. ROTATING THE WHOLE DISC BY IT TURNS "NORTH UP" INTO "YOUR UP":
+        // THE SAME MOON LOOKS UPSIDE DOWN FROM THE SOUTHERN HEMISPHERE, AND
+        // TILTS AS IT RISES AND SETS. WITHOUT A LOCATION WE SHOW NORTH UP.
+        let parallactic = 0;
+        let altitude = null;
+        if (location_) {
+          const pos = SunCalc.getMoonPosition(date, location_.lat, location_.lon);
+          parallactic = pos.parallacticAngle * DEG;
+          altitude = pos.altitude * DEG;
+        }
+        discRotation = closestAngle(discRotation, parallactic);
+
+        $("shadowPath").setAttribute("d", shadowPath(illum.fraction));
+        $("shadowGroup").setAttribute("transform", `rotate(${shadowRotation})`);
+        $("moonContainer").style.transform = `rotate(${discRotation}deg)`;
+        $("moonContainer").classList.toggle(
+          "below-horizon",
+          altitude !== null && altitude < 0
+        );
+
+        return { illum, altitude };
+      }
+
+      // ---------- DAY / NIGHT CYCLE ----------
+
+      const SKY_STATES = {
+        day: { label: "Daytime", tint: "rgba(8, 38, 58, 0.85)" },
+        golden: { label: "Golden hour", tint: "rgba(58, 36, 14, 0.85)" },
+        civil: { label: "Civil twilight", tint: "rgba(34, 26, 70, 0.85)" },
+        nautical: { label: "Nautical twilight", tint: "rgba(12, 20, 52, 0.85)" },
+        astro: { label: "Astronomical twilight", tint: "rgba(4, 8, 26, 0.85)" },
+        night: { label: "Night", tint: "rgba(0, 0, 0, 0.85)" },
+      };
+      const BAR_CHARS = {
+        day: "#",
+        golden: "=",
+        civil: "+",
+        nautical: "-",
+        astro: ":",
+        night: ".",
+      };
+
+      function sunAltitude(date) {
+        return (
+          SunCalc.getPosition(date, location_.lat, location_.lon).altitude * DEG
+        );
+      }
+
+      // THRESHOLDS MATCH THE STANDARD DEFINITIONS (AND SUNCALC'S getTimes)
+      function skyStateKey(altitude) {
+        if (altitude >= 6) return "day";
+        if (altitude >= -0.833) return "golden";
+        if (altitude >= -6) return "civil";
+        if (altitude >= -12) return "nautical";
+        if (altitude >= -18) return "astro";
+        return "night";
+      }
+
+      function skyState(date) {
+        const altitude = sunAltitude(date);
+        const rising = sunAltitude(new Date(date.getTime() + 10 * 60000)) > altitude;
+        const key = skyStateKey(altitude);
+        let label = SKY_STATES[key].label;
+        if (key === "day") label += rising ? " (morning)" : " (afternoon)";
+        else if (key !== "night") label += rising ? " (dawn)" : " (dusk)";
+        return { key, label };
+      }
+
+      // CLOCK TIME AT THE PINNED LOCATION (ITS OWN TIMEZONE WHEN WE KNOW IT)
+      function zoned(options) {
+        const tz = location_ && location_.tz;
+        try {
+          return new Intl.DateTimeFormat("en-GB", { ...options, timeZone: tz || undefined });
+        } catch (e) {
+          return new Intl.DateTimeFormat("en-GB", options);
+        }
+      }
+
+      function formatTime(date) {
+        if (!(date instanceof Date) || isNaN(date)) return "--:--";
+        return zoned({ hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+      }
+
+      function formatDate(date) {
+        const parts = zoned({ year: "numeric", month: "2-digit", day: "2-digit" })
+          .formatToParts(date)
+          .reduce((acc, p) => ((acc[p.type] = p.value), acc), {});
+        return `${parts.year}-${parts.month}-${parts.day}`;
+      }
+
+      function localHours(date) {
+        const parts = zoned({ hour: "2-digit", minute: "2-digit", hour12: false })
+          .formatToParts(date)
+          .reduce((acc, p) => ((acc[p.type] = p.value), acc), {});
+        return (parseInt(parts.hour, 10) % 24) + parseInt(parts.minute, 10) / 60;
+      }
+
+      // A 24-CHARACTER ASCII TIMELINE OF THE LOCAL DAY, WITH A ^ UNDER "NOW"
+      function dayBar(date) {
+        const hoursIn = localHours(date);
+        const midnight = date.getTime() - hoursIn * 3600000;
+        let bar = "";
+        for (let h = 0; h < 24; h++) {
+          const key = skyStateKey(sunAltitude(new Date(midnight + (h + 0.5) * 3600000)));
+          bar += `<span class="${key}">${BAR_CHARS[key]}</span>`;
+        }
+        const marker = " ".repeat(Math.min(23, Math.floor(hoursIn))) + "^";
+        return `00 ${bar} 24\n   ${marker.padEnd(24)}   `;
+      }
+
+      // ---------- RENDER ----------
+
+      function render() {
+        if (live) currentDate = new Date();
+        const date = currentDate;
+        const { illum, altitude } = renderMoon(date);
+
+        const data = $("moonData");
+        data.querySelector(".date").textContent =
+          formatDate(date) + (location_ ? " " + formatTime(date) : "");
+        data.querySelector(".illumination").textContent =
+          `${(illum.fraction * 100).toFixed(2)}%`;
+        data.querySelector(".phase").textContent = getMoonPhaseName(illum.phase);
+
+        document.body.classList.toggle("located", !!location_);
+        $("pinButton").classList.toggle("active", !!location_);
+
+        if (!location_) {
+          document.documentElement.style.setProperty("--sky", "rgba(0, 0, 0, 0.82)");
+          $("pinButton").title = "Set your location";
+          $("locationLine").textContent = "north-up view · pin a location";
+          return;
+        }
+
+        $("pinButton").title = `Location: ${location_.name}`;
+        $("locationLine").textContent = `@ ${location_.name}`;
+
+        const sky = skyState(date);
+        document.documentElement.style.setProperty("--sky", SKY_STATES[sky.key].tint);
+        data.querySelector(".sky").textContent = sky.label;
+
+        const sunTimes = SunCalc.getTimes(date, location_.lat, location_.lon);
+        data.querySelector(".sun").textContent =
+          `↑${formatTime(sunTimes.sunrise)} ↓${formatTime(sunTimes.sunset)}`;
+
+        const moonTimes = SunCalc.getMoonTimes(date, location_.lat, location_.lon);
+        const rise = moonTimes.alwaysUp ? "up all day" : `↑${formatTime(moonTimes.rise)}`;
+        const set = moonTimes.alwaysDown ? "down all day" : `↓${formatTime(moonTimes.set)}`;
+        data.querySelector(".moon").textContent =
+          `${rise} ${set} (${altitude >= 0 ? "up" : "down"} ${altitude.toFixed(0)}°)`;
+
+        $("dayBar").innerHTML = dayBar(date);
+      }
+
+      // ---------- ASCII ART SCALING ----------
+
+      // THE ART IS HUGE (5PX FONT, ~200 COLUMNS) AND ITS CHARACTER CELLS AREN'T
+      // SQUARE, SO STRETCH EACH AXIS SEPARATELY TO MAP THE MOON ONTO THE DISC
+      function fitArt() {
+        const art = $("moonArt");
+        const size = $("moonContainer").clientWidth;
+        const scaleX = size / art.offsetWidth;
+        const scaleY = size / art.offsetHeight;
+        art.style.transform = `translate(-50%, -50%) scale(${scaleX}, ${scaleY})`;
+      }
+
+      // MAKE THE DISC AS BIG AS THE SPACE LEFT OVER BY THE TEXT, KEEPING IT ROUND
+      function sizeDisc() {
+        const widget = $("widget");
+        const style = getComputedStyle(widget);
+        const children = [...widget.children].filter(
+          (el) => el.offsetParent !== null && el.id !== "locationPanel"
+        );
+        const others = children
+          .filter((el) => el.id !== "moonContainer")
+          .reduce((sum, el) => sum + el.offsetHeight, 0);
+        const gaps = parseFloat(style.rowGap) * (children.length - 1);
+        const padding =
+          parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + 2;
+        const size = Math.max(
+          60,
+          Math.min(
+            widget.clientWidth - 40,
+            window.innerHeight - padding - gaps - others
+          )
+        );
+        document.documentElement.style.setProperty("--disc", `${Math.floor(size)}px`);
+        fitArt();
+      }
+
+      // ---------- EVENTS ----------
+
+      function changeDate(days) {
+        live = false;
+        currentDate = new Date(currentDate.getTime() + days * 86400000);
+        render();
+      }
+
+      function setStatus(text) {
+        $("locationStatus").textContent = text;
+      }
+
+      function togglePanel(open) {
+        const panel = $("locationPanel");
+        panel.classList.toggle("open", open);
+        if (open) {
+          $("locationInput").value = location_ ? location_.name : "";
+          setStatus(location_ ? `Current: ${formatCoords(location_.lat, location_.lon)}` : "");
+          $("locationInput").focus();
+          $("locationInput").select();
+        }
+      }
+
+      async function submitLocation() {
+        const query = $("locationInput").value;
+        if (!query.trim()) return;
+        setStatus("Looking up…");
+        try {
+          const loc = await resolveLocation(query);
+          saveLocation(loc);
+          sizeDisc();
+          setStatus(`Set to ${loc.name}`);
+          setTimeout(() => togglePanel(false), 700);
+        } catch (e) {
+          setStatus(e.message || "Could not find that location");
+        }
+      }
+
+      function detectLocation() {
+        if (!navigator.geolocation) {
+          setStatus("Location detection is not available");
+          return;
+        }
+        setStatus("Detecting…");
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const lat = pos.coords.latitude;
+            const lon = pos.coords.longitude;
+            saveLocation({ lat, lon, name: formatCoords(lat, lon), tz: null });
+            sizeDisc();
+            setStatus(`Set to ${formatCoords(lat, lon)}`);
+            setTimeout(() => togglePanel(false), 700);
+          },
+          () => setStatus("Detection failed (is geoclue running?)"),
+          { timeout: 15000 }
+        );
+      }
+
+      $("pinButton").addEventListener("click", () =>
+        togglePanel(!$("locationPanel").classList.contains("open"))
+      );
+      $("locationSet").addEventListener("click", submitLocation);
+      $("locationGps").addEventListener("click", detectLocation);
+      $("locationClear").addEventListener("click", () => {
+        saveLocation(null);
+        sizeDisc();
+        setStatus("Location cleared");
+      });
+      $("locationClose").addEventListener("click", () => togglePanel(false));
+      $("locationInput").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") submitLocation();
+        if (e.key === "Escape") togglePanel(false);
+      });
+      $("prevDay").addEventListener("click", () => changeDate(-1));
+      $("nextDay").addEventListener("click", () => changeDate(1));
+      $("today").addEventListener("click", () => {
+        live = true;
+        render();
+      });
+      document.addEventListener("contextmenu", (e) => e.preventDefault());
+      window.addEventListener("resize", sizeDisc);
+
+      render();
+      sizeDisc();
+      // THE MOON'S TILT AND THE SKY CHANGE THROUGH THE DAY, SO KEEP IT LIVE
+      setInterval(() => live && render(), 60000);
+    </script>
+  </body>
+</html>
